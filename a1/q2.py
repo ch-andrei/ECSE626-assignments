@@ -4,8 +4,17 @@ import cv2
 import plotly.plotly as py
 import plotly.graph_objs as go
 
+doPlots = False
+doVerbose = True
+
 imgfolder = "images"
-imgname = "001.png"
+imgname000 = "000.png"
+imgname001 = "001.png"
+imgname002 = "002.png"
+imgname003 = "003.png"
+imgname004 = "004.png"
+imgname005 = "005.png"
+
 
 def readGrayImg(imgfolder, imgname):
     return cv2.imread("{}/{}".format(imgfolder, imgname), 0).astype(np.int)
@@ -49,24 +58,37 @@ def computeProbabilities2(img1, img2):
 
     return p1, p2, p12
 
-def computeImgEntropy(img):
-    p = computeProbabilities(img)
+def computeImgEntropy(a):
+    p = computeProbabilities(a)
     return -np.sum(p * np.log2(p))
 
-def computeMutualInformation(img1, img2):
-    p1, p2, p12 = computeProbabilities2(img1, img2)
-    return -np.sum(p12 * np.log2(p12 / p1 / p2))
+def computeJointEntropy(a, b):
+    p1, p2, p12 = computeProbabilities2(a, b)
+    return -np.sum(p12 * np.log2(p12))
 
-def q2a(verbose=True):
-    img = readGrayImg(imgfolder, imgname)
+def computeMutualInformation(a, b):
+    p1, p2, p12 = computeProbabilities2(a, b)
+    return np.sum(p12 * np.log2(p12 / p1 / p2))
+
+def computeKullbackLeiblerDivergence(a, b):
+    p1, p2, p12 = computeProbabilities2(a, b)
+    return np.sum(p1 * np.log(p1 / p2))
+
+def computeMse(img1, img2):
+    dif = img1 - img2
+    n = dif.shape[0] / dif.shape[1]
+    return (dif * dif).sum() / n
+
+def q2a(verbose=doVerbose):
+    img = readGrayImg(imgfolder, imgname001)
 
     entropy = computeImgEntropy(img)
 
     if verbose:
-        print("a) The entropy of the image {} is [{}].".format(imgname, entropy))
+        print("a) The entropy of the image {} is [{}].".format(imgname001, entropy))
 
-def q2b(verbose=True):
-    img = readGrayImg(imgfolder, imgname)
+def q2b(verbose=doVerbose):
+    img = readGrayImg(imgfolder, imgname001)
 
     noiseAmplitude = 20
     img = randomNoiseImg(img.shape[0], img.shape[1], noiseAmplitude)
@@ -75,8 +97,8 @@ def q2b(verbose=True):
     if verbose:
         print("b) The entropy of a random noise image with noise amplitude {} is [{}].".format(noiseAmplitude, entropy))
 
-def q2c(noiseAmplitude=20, verbose=True):
-    img = readGrayImg(imgfolder, imgname)
+def q2c(noiseAmplitude=20, verbose=doVerbose):
+    img = readGrayImg(imgfolder, imgname001)
     entropy = computeImgEntropy(img)
 
     imgNoise = randomNoiseImg(img.shape[0], img.shape[1], noiseAmplitude)
@@ -92,7 +114,7 @@ def q2c(noiseAmplitude=20, verbose=True):
 
     return noiseAmplitude, entropy, entropyNoisy, entropyCombined
 
-def q2d(plot=False):
+def q2d(plot=doPlots):
     print("d) plotting...")
 
     a = []
@@ -138,35 +160,152 @@ def q2d(plot=False):
         fig = dict(data=data, layout=layout)
 
         py.plot(fig, filename='line-mode')
+    else:
+        print("Skipped.")
 
-from scipy.stats import chi2_contingency
-
-def calc_MI(x, y, bins):
-    c_xy = np.histogram2d(x, y, bins)[0]
-    g, p, dof, expected = chi2_contingency(c_xy, lambda_="log-likelihood")
-    mi = 0.5 * g / c_xy.sum()
-    return mi
-
-def q22a(verbose=True):
-    img = readGrayImg(imgfolder, imgname)
+def q22ab(verbose=doVerbose):
+    img = readGrayImg(imgfolder, imgname001)
 
     noiseAmplitude = 20
     imgNoise = randomNoiseImg(img.shape[0], img.shape[1], noiseAmplitude)
 
+    en1 = computeImgEntropy(img)
+    en2 = computeImgEntropy(imgNoise)
+    jen = computeJointEntropy(img, imgNoise)
     mi = computeMutualInformation(img, imgNoise)
 
     if verbose:
-        print("a) the MI of the image and 20-noise is [{}].".format(mi))
+        print("ab) the MI of the image and 20-noise is [{}]\n"
+              "   entropy: img [{}], noise [{}].\n"
+              "   joint e: [{}]".format(mi, en1, en2, jen))
+
+def q22c(noiseAmplitude = 20, verbose=doVerbose):
+    img = readGrayImg(imgfolder, imgname001)
+
+    imgNoise1 = randomNoiseImg(img.shape[0], img.shape[1], noiseAmplitude)
+    imgNoise2 = randomNoiseImg(img.shape[0], img.shape[1], noiseAmplitude)
+
+    imgCombined = np.clip(img + imgNoise1, 0, 255)
+
+    kl_n2n = computeKullbackLeiblerDivergence(imgNoise1, imgNoise2)
+
+    kl_i2n = computeKullbackLeiblerDivergence(img, imgNoise1)
+    kl_i2ni = computeKullbackLeiblerDivergence(img, imgCombined)
+    mi_i2ni = computeMutualInformation(img, imgCombined)
+
+    if verbose:
+        print("c) Kullback-Leibler divergence:\n"
+              "   noise to noise : [{}]\n"
+              "   img to noise   : [{}]\n"
+              "   img to noisyimg: [{}]\n"
+              "   mi img to noisy: [{}]".format(kl_n2n, kl_i2n, kl_i2ni, mi_i2ni))
+
+    return {"a": noiseAmplitude, "mi": mi_i2ni, "kl": kl_i2ni}
+
+def q22de(plot=doPlots):
+    print("d) plotting...")
+
+    a = []
+    mi = []
+    kl = []
+
+    for noiseAmplitude in range(0, 201, 5):
+        results = q22c(noiseAmplitude, verbose=False)
+        a.append(results["a"])
+        mi.append(results["mi"])
+        kl.append(results["kl"])
+
+    if plot:
+        # plot MI
+        trace0 = go.Scatter(
+            x=a,
+            y=mi,
+            mode='lines+markers',
+            name='mi'
+        )
+        data = [trace0]
+
+        # Edit the layout
+        layout = dict(title='Mutual Information as a function of noise amplitude',
+                      xaxis=dict(title='Noise Amplitude'),
+                      yaxis=dict(title='Mutual Information'),
+                      )
+
+        fig = dict(data=data, layout=layout)
+        py.plot(fig, filename='mi')
+
+        # plot KL
+        trace1 = go.Scatter(
+            x=a,
+            y=kl,
+            mode='lines+markers',
+            name='kl'
+        )
+        data = [trace1]
+
+        # Edit the layout
+        layout = dict(title='Kullback-Leibler divergence as a function of noise amplitude',
+                      xaxis=dict(title='Noise Amplitude'),
+                      yaxis=dict(title='KL divergence'),
+                      )
+
+        fig = dict(data=data, layout=layout)
+        py.plot(fig, filename='kldiv')
+    else:
+        print("Skipped.")
+
+from scipy.ndimage.interpolation import shift
+
+def q23a(verbose=doVerbose, imgname1=imgname000, imgname2=imgname001):
+    img1 = readGrayImg(imgfolder, imgname1)
+    img2 = readGrayImg(imgfolder, imgname2)
+
+    rows, cols = img1.shape
+
+    bestMi = 0
+    bestMse = 255*255*rows*cols
+
+    for i in range(81):
+        for j in range(81):
+            x = i - 40
+            y = j - 40
+
+            # translate
+            imgTranslated = shift(img1, (x, y))
+
+            mi = computeMutualInformation(imgTranslated, img2)
+            mse = computeMse(imgTranslated, img2)
+
+            if mse < bestMse:
+                bestMse = mse
+                bestMseXy = (x, y)
+
+            if mi > bestMi:
+                bestMi = mi
+                bestMiXy = (x, y)
+
+        print("\rfinished i {}".format(i), end="")
+
+    if verbose:
+        print("a) best mse [{}]: xy [{}]\n"
+              "   best mi  [{}]: xy [{}]".format(bestMse, bestMseXy, bestMi, bestMiXy))
 
 def main():
-    print("2.1:")
+    print("\n2.1: Entropy")
     q2a()
     q2b()
     q2c()
     q2d()
 
-    print("2.2")
-    q22a()
+    print("\n2.2 MI and KL divergence")
+    q22ab()
+    q22c()
+    q22de()
+
+    print("\n2.3 Simple Image Registration")
+    q23a(imgname1=imgname000, imgname2=imgname001)
+    q23a(imgname1=imgname002, imgname2=imgname003)
+    q23a(imgname1=imgname004, imgname2=imgname005)
 
 if __name__=="__main__":
     main()
