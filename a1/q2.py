@@ -15,7 +15,6 @@ imgname003 = "003.png"
 imgname004 = "004.png"
 imgname005 = "005.png"
 
-
 def readGrayImg(imgfolder, imgname):
     return cv2.imread("{}/{}".format(imgfolder, imgname), 0).astype(np.int)
 
@@ -39,6 +38,7 @@ def computeProbabilities2(img1, img2):
 
     p1 = counts1 / counts1.sum()
     p2 = counts2 / counts2.sum()
+    p12 = counts12 / counts12.sum()
 
     d1 = dict(zip(uniques1, p1))
     d2 = dict(zip(uniques2, p2))
@@ -46,15 +46,11 @@ def computeProbabilities2(img1, img2):
     p1 = []
     p2 = []
     for i in range(uniques12.shape[1]):
-        v1 = uniques12[0, i]
-        v2 = uniques12[1, i]
-
-        p1.append(d1[v1])
-        p2.append(d2[v2])
+        p1.append(d1[uniques12[0, i]])
+        p2.append(d2[uniques12[1, i]])
 
     p1 = np.array(p1)
     p2 = np.array(p2)
-    p12 = counts12 / counts12.sum()
 
     return p1, p2, p12
 
@@ -76,8 +72,7 @@ def computeKullbackLeiblerDivergence(a, b):
 
 def computeMse(img1, img2):
     dif = img1 - img2
-    n = dif.shape[0] / dif.shape[1]
-    return (dif * dif).sum() / n
+    return (dif * dif).sum()
 
 def q2a(verbose=doVerbose):
     img = readGrayImg(imgfolder, imgname001)
@@ -202,7 +197,7 @@ def q22c(noiseAmplitude = 20, verbose=doVerbose):
 
     return {"a": noiseAmplitude, "mi": mi_i2ni, "kl": kl_i2ni}
 
-def q22de(plot=doPlots):
+def q22de(plot=True):
     print("d) plotting...")
 
     a = []
@@ -256,7 +251,7 @@ def q22de(plot=doPlots):
 
 from scipy.ndimage.interpolation import shift
 
-def q23a(verbose=doVerbose, imgname1=imgname000, imgname2=imgname001):
+def q23(verbose=doVerbose, imgname1=imgname000, imgname2=imgname001):
     img1 = readGrayImg(imgfolder, imgname1)
     img2 = readGrayImg(imgfolder, imgname2)
 
@@ -291,21 +286,21 @@ def q23a(verbose=doVerbose, imgname1=imgname000, imgname2=imgname001):
               "   best mi  [{}]: xy [{}]".format(bestMse, bestMseXy, bestMi, bestMiXy))
 
 def main():
-    print("\n2.1: Entropy")
-    q2a()
-    q2b()
-    q2c()
-    q2d()
+    # print("\n2.1: Entropy")
+    # q2a()
+    # q2b()
+    # q2c()
+    # q2d()
 
     print("\n2.2 MI and KL divergence")
-    q22ab()
-    q22c()
-    q22de()
+    # q22ab()
+    # q22c()
+    # q22de()
 
-    print("\n2.3 Simple Image Registration")
-    q23a(imgname1=imgname000, imgname2=imgname001)
-    q23a(imgname1=imgname002, imgname2=imgname003)
-    q23a(imgname1=imgname004, imgname2=imgname005)
+    # print("\n2.3 Simple Image Registration")
+    q23(imgname1=imgname000, imgname2=imgname001)
+    q23(imgname1=imgname002, imgname2=imgname003)
+    q23(imgname1=imgname004, imgname2=imgname005)
 
 if __name__=="__main__":
     main()
