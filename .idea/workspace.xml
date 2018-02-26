@@ -2,8 +2,6 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="49ad14e2-4569-4696-87bc-f1a0ec8de5b6" name="Default" comment="">
-      <change type="DELETED" beforePath="$PROJECT_DIR$/a1/q2img.py" afterPath="" />
-      <change type="MODIFICATION" beforePath="$PROJECT_DIR$/.gitignore" afterPath="$PROJECT_DIR$/.gitignore" />
       <change type="MODIFICATION" beforePath="$PROJECT_DIR$/a1/q2.py" afterPath="$PROJECT_DIR$/a1/q2.py" />
     </list>
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
@@ -15,24 +13,14 @@
   </component>
   <component name="FileEditorManager">
     <leaf>
-      <file leaf-file-name="q2.py" pinned="false" current-in-tab="false">
+      <file leaf-file-name="q2.py" pinned="false" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/a1/q2.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="226">
-              <caret line="233" column="16" lean-forward="true" selection-start-line="233" selection-start-column="16" selection-end-line="233" selection-end-column="16" />
+            <state relative-caret-position="430">
+              <caret line="310" column="38" lean-forward="false" selection-start-line="310" selection-start-column="38" selection-end-line="310" selection-end-column="38" />
               <folding>
                 <element signature="e#0#18#0" expanded="true" />
               </folding>
-            </state>
-          </provider>
-        </entry>
-      </file>
-      <file leaf-file-name=".gitignore" pinned="false" current-in-tab="true">
-        <entry file="file://$PROJECT_DIR$/.gitignore">
-          <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="657">
-              <caret line="92" column="0" lean-forward="true" selection-start-line="92" selection-start-column="0" selection-end-line="92" selection-end-column="0" />
-              <folding />
             </state>
           </provider>
         </entry>
@@ -60,8 +48,8 @@
         <option value="$PROJECT_DIR$/tools.py" />
         <option value="$PROJECT_DIR$/entropy.py" />
         <option value="$PROJECT_DIR$/a1/q2img.py" />
-        <option value="$PROJECT_DIR$/a1/q2.py" />
         <option value="$PROJECT_DIR$/.gitignore" />
+        <option value="$PROJECT_DIR$/a1/q2.py" />
       </list>
     </option>
   </component>
@@ -99,6 +87,12 @@
               <item name="ECSE626-assignments" type="462c0819:PsiDirectoryNode" />
               <item name="a1" type="462c0819:PsiDirectoryNode" />
             </path>
+            <path>
+              <item name="ECSE626-assignments" type="b2602c69:ProjectViewProjectNode" />
+              <item name="ECSE626-assignments" type="462c0819:PsiDirectoryNode" />
+              <item name="a1" type="462c0819:PsiDirectoryNode" />
+              <item name="results" type="462c0819:PsiDirectoryNode" />
+            </path>
           </expand>
           <select />
         </subPane>
@@ -121,8 +115,8 @@
       </list>
     </option>
   </component>
-  <component name="RunManager" selected="Python.Entropy">
-    <configuration name="Entropy" type="PythonConfigurationType" factoryName="Python">
+  <component name="RunManager" selected="Python.Run q2">
+    <configuration name="Run q2" type="PythonConfigurationType" factoryName="Python">
       <option name="INTERPRETER_OPTIONS" value="" />
       <option name="PARENT_ENVS" value="true" />
       <envs>
@@ -155,9 +149,8 @@
   </component>
   <component name="ToolWindowManager">
     <frame x="-8" y="-8" width="1936" height="1056" extended-state="6" />
-    <editor active="true" />
     <layout>
-      <window_info id="Project" active="false" anchor="left" auto_hide="false" internal_type="DOCKED" type="DOCKED" visible="true" show_stripe_button="true" weight="0.25" sideWeight="0.5" order="0" side_tool="false" content_ui="combo" />
+      <window_info id="Project" active="true" anchor="left" auto_hide="false" internal_type="DOCKED" type="DOCKED" visible="true" show_stripe_button="true" weight="0.25" sideWeight="0.5" order="0" side_tool="false" content_ui="combo" />
       <window_info id="TODO" active="false" anchor="bottom" auto_hide="false" internal_type="DOCKED" type="DOCKED" visible="false" show_stripe_button="true" weight="0.33" sideWeight="0.5" order="6" side_tool="false" content_ui="tabs" />
       <window_info id="Event Log" active="false" anchor="bottom" auto_hide="false" internal_type="DOCKED" type="DOCKED" visible="false" show_stripe_button="true" weight="0.33" sideWeight="0.5" order="7" side_tool="true" content_ui="tabs" />
       <window_info id="Run" active="false" anchor="bottom" auto_hide="false" internal_type="DOCKED" type="WINDOWED" visible="true" show_stripe_button="true" weight="0.32934782" sideWeight="0.5" order="2" side_tool="false" content_ui="tabs" x="-959" y="31" width="958" height="1008" />
@@ -224,21 +217,21 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/a1/q2.py">
+    <entry file="file://$PROJECT_DIR$/.gitignore">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="226">
-          <caret line="233" column="16" lean-forward="true" selection-start-line="233" selection-start-column="16" selection-end-line="233" selection-end-column="16" />
-          <folding>
-            <element signature="e#0#18#0" expanded="true" />
-          </folding>
+        <state relative-caret-position="555">
+          <caret line="86" column="5" lean-forward="true" selection-start-line="86" selection-start-column="5" selection-end-line="86" selection-end-column="5" />
+          <folding />
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/.gitignore">
+    <entry file="file://$PROJECT_DIR$/a1/q2.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="657">
-          <caret line="92" column="0" lean-forward="true" selection-start-line="92" selection-start-column="0" selection-end-line="92" selection-end-column="0" />
-          <folding />
+        <state relative-caret-position="430">
+          <caret line="310" column="38" lean-forward="false" selection-start-line="310" selection-start-column="38" selection-end-line="310" selection-end-column="38" />
+          <folding>
+            <element signature="e#0#18#0" expanded="true" />
+          </folding>
         </state>
       </provider>
     </entry>

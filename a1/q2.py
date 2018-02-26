@@ -18,6 +18,9 @@ imgname005 = "005.png"
 def readGrayImg(imgfolder, imgname):
     return cv2.imread("{}/{}".format(imgfolder, imgname), 0).astype(np.int)
 
+def imshow(imgname, img):
+    cv2.imshow(imgname, img.astype(np.uint8))
+
 def randomNoiseImg(n, m, maxval):
     return (np.random.rand(n, m) * 2 * maxval - maxval).astype(np.int)
 
@@ -282,8 +285,46 @@ def q23(verbose=doVerbose, imgname1=imgname000, imgname2=imgname001):
         print("\rfinished i {}".format(i), end="")
 
     if verbose:
-        print("a) best mse [{}]: xy [{}]\n"
+        print("\n"
+              "   best mse [{}]: xy [{}]\n"
               "   best mi  [{}]: xy [{}]".format(bestMse, bestMseXy, bestMi, bestMiXy))
+
+def q22showshift(verbose=doVerbose):
+    """
+    a) best mse [0]: xy [(15, 12)]
+       best mi  [3.221302964559462]: xy [(15, 12)]
+    b) best mse [185532018]: xy [(9, -8)]
+       best mi  [1.2698222716441556]: xy [(10, 3)]
+    c) best mse [150624940]: xy [(0, 19)]
+       best mi  [0.6098016028317651]: xy [(1, 31)]
+    """
+    results = {
+        (imgname000, imgname001): [(15,12), (15,12)],
+        (imgname002, imgname003): [(9,-8),  (10,3 )],
+        (imgname004, imgname005): [(0,19),  (1, 31)]
+    }
+
+    for key in results:
+        imgname1, imgname2 = key
+
+        img1 = readGrayImg(imgfolder, imgname1)
+        img2 = readGrayImg(imgfolder, imgname2)
+
+        imshow(imgname1, img1)
+        imshow(imgname2, img2)
+
+        shifts = results[key]
+        for index, (x, y) in enumerate(shifts):
+            imgTranslated = shift(img1, (x, y))
+
+            name = "mse blend" if index == 0 else "mi blend"
+
+            imgBlend = (img2.astype(np.float) + imgTranslated.astype(np.float)) / 2
+
+            imshow(name, imgBlend)
+
+        cv2.waitKey()
+
 
 def main():
     # print("\n2.1: Entropy")
@@ -292,15 +333,17 @@ def main():
     # q2c()
     # q2d()
 
-    print("\n2.2 MI and KL divergence")
+    # print("\n2.2 MI and KL divergence")
     # q22ab()
     # q22c()
     # q22de()
 
     # print("\n2.3 Simple Image Registration")
-    q23(imgname1=imgname000, imgname2=imgname001)
-    q23(imgname1=imgname002, imgname2=imgname003)
-    q23(imgname1=imgname004, imgname2=imgname005)
+    # q23(imgname1=imgname000, imgname2=imgname001)
+    # q23(imgname1=imgname002, imgname2=imgname003)
+    # q23(imgname1=imgname004, imgname2=imgname005)
+
+    q22showshift()
 
 if __name__=="__main__":
     main()
