@@ -4,7 +4,7 @@ import cv2
 import plotly.plotly as py
 import plotly.graph_objs as go
 
-doPlots = False
+doPlots = True
 doVerbose = True
 
 imgfolder = "images"
@@ -24,11 +24,19 @@ def imshow(imgname, img):
 def randomNoiseImg(n, m, maxval):
     return (np.random.rand(n, m) * 2 * maxval - maxval).astype(np.int)
 
+# single image
 def computeProbabilities(img):
     uniques, counts = np.unique(img, return_counts=True)
     p = counts / counts.sum()
     return p
 
+# between two images
+# returns 3 lists: ordered P(x,y) and corresponding P(x) and P(y) in order of appearance in P(x,y) (with duplicates)
+# ex:
+#     P(x,y) = [P(122,15), P(76, 15)]
+#     P(x)   = [P(122)   , P(76)    ]
+#     P(y)   = [P(15)    , P(15)    ]
+# this format allows for vectorized computation later
 def computeProbabilities2(img1, img2):
     img12 = np.zeros((2,) + img1.shape[:2], np.int)
     img12[0] = img1
@@ -77,16 +85,20 @@ def computeMse(img1, img2):
     dif = img1 - img2
     return (dif * dif).sum()
 
-def q2a(verbose=doVerbose):
-    img = readGrayImg(imgfolder, imgname001)
+def combineImgs(img1, img2, clamp=False):
+    imgCombined = img1 + img2
+    return np.clip(imgCombined, 0, 255) if clamp else imgCombined
+
+def q2a(verbose=doVerbose, imgname=imgname000):
+    img = readGrayImg(imgfolder, imgname)
 
     entropy = computeImgEntropy(img)
 
     if verbose:
-        print("a) The entropy of the image {} is [{}].".format(imgname001, entropy))
+        print("a) The entropy of the image {} is [{}].".format(imgname, entropy))
 
-def q2b(verbose=doVerbose):
-    img = readGrayImg(imgfolder, imgname001)
+def q2b(verbose=doVerbose, imgname=imgname000):
+    img = readGrayImg(imgfolder, imgname)
 
     noiseAmplitude = 20
     img = randomNoiseImg(img.shape[0], img.shape[1], noiseAmplitude)
@@ -95,14 +107,14 @@ def q2b(verbose=doVerbose):
     if verbose:
         print("b) The entropy of a random noise image with noise amplitude {} is [{}].".format(noiseAmplitude, entropy))
 
-def q2c(noiseAmplitude=20, verbose=doVerbose):
-    img = readGrayImg(imgfolder, imgname001)
+def q2c(noiseAmplitude=20, verbose=doVerbose, imgname=imgname000):
+    img = readGrayImg(imgfolder, imgname)
     entropy = computeImgEntropy(img)
 
     imgNoise = randomNoiseImg(img.shape[0], img.shape[1], noiseAmplitude)
     entropyNoisy = computeImgEntropy(imgNoise)
 
-    imgCombined = np.clip(img + imgNoise, 0, 255)
+    imgCombined = combineImgs(img, imgNoise)
     entropyCombined = computeImgEntropy(imgCombined)
 
     if verbose:
@@ -183,7 +195,7 @@ def q22c(noiseAmplitude = 20, verbose=doVerbose):
     imgNoise1 = randomNoiseImg(img.shape[0], img.shape[1], noiseAmplitude)
     imgNoise2 = randomNoiseImg(img.shape[0], img.shape[1], noiseAmplitude)
 
-    imgCombined = np.clip(img + imgNoise1, 0, 255)
+    imgCombined = combineImgs(img, imgNoise1)
 
     kl_n2n = computeKullbackLeiblerDivergence(imgNoise1, imgNoise2)
 
@@ -200,7 +212,7 @@ def q22c(noiseAmplitude = 20, verbose=doVerbose):
 
     return {"a": noiseAmplitude, "mi": mi_i2ni, "kl": kl_i2ni}
 
-def q22de(plot=True):
+def q22de(plot=doPlots):
     print("d) plotting...")
 
     a = []
@@ -291,6 +303,7 @@ def q23(verbose=doVerbose, imgname1=imgname000, imgname2=imgname001):
 
 def q22showshift(verbose=doVerbose):
     """
+    results from running the searches
     a) best mse [0]: xy [(15, 12)]
        best mi  [3.221302964559462]: xy [(15, 12)]
     b) best mse [185532018]: xy [(9, -8)]
@@ -327,23 +340,23 @@ def q22showshift(verbose=doVerbose):
 
 
 def main():
-    # print("\n2.1: Entropy")
-    # q2a()
-    # q2b()
-    # q2c()
-    # q2d()
+    print("\n2.1: Entropy")
+    q2a()
+    q2b()
+    q2c()
+    q2d()
 
-    # print("\n2.2 MI and KL divergence")
-    # q22ab()
-    # q22c()
-    # q22de()
+    print("\n2.2 MI and KL divergence")
+    q22ab()
+    q22c()
+    q22de()
 
     # print("\n2.3 Simple Image Registration")
     # q23(imgname1=imgname000, imgname2=imgname001)
     # q23(imgname1=imgname002, imgname2=imgname003)
     # q23(imgname1=imgname004, imgname2=imgname005)
 
-    q22showshift()
+    # q22showshift()
 
 if __name__=="__main__":
     main()
