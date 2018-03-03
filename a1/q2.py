@@ -25,10 +25,32 @@ def randomNoiseImg(n, m, maxval):
     return (np.random.rand(n, m) * 2 * maxval - maxval).astype(np.int)
 
 # single image
-def computeProbabilities(img):
-    uniques, counts = np.unique(img, return_counts=True)
+def computeProbabilities(a):
+    uniques, counts = np.unique(a, return_counts=True)
     p = counts / counts.sum()
     return p
+
+# between two images
+# returns probability of the shared space of variables
+# e.g. x in X, y in Y: returns ordered probability values of x, y over intersection of X and Y only
+def computeProbabilitiesShared(a, b):
+    uniques1, counts1 = np.unique(a, return_counts=True)
+    uniques2, counts2 = np.unique(b, return_counts=True)
+
+    d1 = dict(zip(uniques1, counts1 / counts1.sum()))
+    d2 = dict(zip(uniques2, counts2 / counts2.sum()))
+
+    p1 = []
+    p2 = []
+    for i in uniques1:
+        if i in uniques2:
+            p1.append(d1[i])
+            p2.append(d2[i])
+
+    p1 = np.array(p1)
+    p2 = np.array(p2)
+
+    return p1, p2
 
 # between two images
 # returns 3 lists: ordered P(x,y) and corresponding P(x) and P(y) in order of appearance in P(x,y) (with duplicates)
@@ -37,22 +59,18 @@ def computeProbabilities(img):
 #     P(x)   = [P(122)   , P(76)    ]
 #     P(y)   = [P(15)    , P(15)    ]
 # this format allows for vectorized computation later
-def computeProbabilities2(img1, img2):
-    img12 = np.zeros((2,) + img1.shape[:2], np.int)
-    img12[0] = img1
-    img12[1] = img2
+def computeProbabilities2(a, b):
+    img12 = np.zeros((2,) + a.shape[:2], np.int)
+    img12[0] = a
+    img12[1] = b
     img12 = img12.reshape((2, -1))
 
-    uniques1, counts1 = np.unique(img1, return_counts=True)
-    uniques2, counts2 = np.unique(img2, return_counts=True)
+    uniques1, counts1 = np.unique(a, return_counts=True)
+    uniques2, counts2 = np.unique(b, return_counts=True)
     uniques12, counts12 = np.unique(img12, return_counts=True, axis=1)
 
-    p1 = counts1 / counts1.sum()
-    p2 = counts2 / counts2.sum()
-    p12 = counts12 / counts12.sum()
-
-    d1 = dict(zip(uniques1, p1))
-    d2 = dict(zip(uniques2, p2))
+    d1 = dict(zip(uniques1, counts1 / counts1.sum()))
+    d2 = dict(zip(uniques2, counts2 / counts2.sum()))
 
     p1 = []
     p2 = []
@@ -62,6 +80,7 @@ def computeProbabilities2(img1, img2):
 
     p1 = np.array(p1)
     p2 = np.array(p2)
+    p12 = counts12 / counts12.sum()
 
     return p1, p2, p12
 
@@ -78,7 +97,7 @@ def computeMutualInformation(a, b):
     return np.sum(p12 * np.log2(p12 / p1 / p2))
 
 def computeKullbackLeiblerDivergence(a, b):
-    p1, p2, p12 = computeProbabilities2(a, b)
+    p1, p2 = computeProbabilitiesShared(a, b)
     return np.sum(p1 * np.log(p1 / p2))
 
 def computeMse(img1, img2):
@@ -351,10 +370,10 @@ def main():
     q22c()
     q22de()
 
-    # print("\n2.3 Simple Image Registration")
-    # q23(imgname1=imgname000, imgname2=imgname001)
-    # q23(imgname1=imgname002, imgname2=imgname003)
-    # q23(imgname1=imgname004, imgname2=imgname005)
+    print("\n2.3 Simple Image Registration")
+    q23(imgname1=imgname000, imgname2=imgname001)
+    q23(imgname1=imgname002, imgname2=imgname003)
+    q23(imgname1=imgname004, imgname2=imgname005)
 
     # q22showshift()
 
