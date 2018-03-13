@@ -1,21 +1,26 @@
 import numpy as np
 import cv2
 
-doPlots = True
-
 doVerbose = False
-# doVerbose = True
+dumgLogsOnNan = True
+doSaveSegmented = True
+doShowImage = False
 
 imgFolder = "images"
+imgResultFolder = "results"
 imgName0 = "69020.jpg"
 imgName1 = "227092.jpg"
 imgName2 = "260058.jpg"
 
 rescale = 1
 gmmK = 2
-gmmMaxIterations = 500
-gmmFeatureType = "lab"
+gmmMaxIterations = 1000 # termination if epsilon criterion isn't reached
+gmmFeatureType = "i"
 img2read = imgName0
+epsilon = 1e-2
+epsilonP = 1e-6
+
+logs = []
 
 # GMMs and EM algorithm implemented as per
 # http://www.ics.uci.edu/~smyth/courses/cs274/notes/EMnotes.pdf
@@ -39,7 +44,7 @@ class GMM:
             img,
             featureType = "i", # can be "I", "RGB", "Lab"
             gmmMaxIterations = gmmMaxIterations,
-            epsilon=1e-4
+            epsilon=epsilon
             ):
 
         featureType = featureType.lower()
@@ -56,31 +61,41 @@ class GMM:
         x = x.transpose() # transpose to be N x d
         n, d = x.shape[:2] # number of samples and dimensionality of each sample
 
+        x -= x.min() - epsilonP
+        x /= x.max() + epsilonP
+
+        print(n, d)
+        print(x.max(), x.min())
+
         alphas = np.array([1.0 / self.k for i in range(self.k)], np.float32) # alphas for each Gaussian
-        means = x[(np.random.rand(self.k) * n).astype(np.int)] # pick random means for each Gaussian
         covars = np.array([np.eye(d) if d > 1 else [[1]] for i in range(self.k)], np.float32) # identity covar matrices for each Gaussian
+
+        means = x[(np.random.rand(self.k) * n).astype(np.int)] # pick random means for each Gaussian
 
         w = np.zeros((n, self.k), np.float32) # membership weight of each data point to each Gaussian
 
-        logl = [1000000000000] # log likelihoods over iterations
+        loglikelihoods = [] # stores log likelihoods over iterations
         iteration = 0
         while iteration < gmmMaxIterations:
 
             # E-step
+
+            # compute probabilities
             p = np.zeros((self.k, n))
             for k in range(self.k):
                 p[k] = alphas[k] * self.P(x, means, covars, d, k)
 
+            # update log likelihood (use current information)
+            # its faster to do it here than after updating alphas, means, covars
+            loglikelihood = np.log10(p.sum(axis=0)).sum()
+            loglikelihoods.append(loglikelihood)
+
+            print("\rRunning iteration {}; current log likelihood = [{}]".format(iteration, loglikelihood), end="")
+
             psum = np.sum(p, axis=0)
-
+            doprint("psumzero", (psum == 0).any())
             for k in range(self.k):
-                w[:, k] = p[k] / psum
-
-            # normalize w for each data point (sum of w_k for each point must be 1)
-            wmag = np.sum(w, axis=1)
-
-            for k in range(self.k):
-                w[:, k] /= wmag
+                w[:, k] = p[k] / (psum + epsilonP)
 
             # M-step
             N_k = w.sum(axis=0)
@@ -93,8 +108,8 @@ class GMM:
 
                 wk = w[:, k].reshape(n, 1, 1)
 
+                # vectorized dot product computation
                 xmmean = x - means[k]
-
                 r1 = np.repeat(xmmean, d)
                 r2 = np.repeat(xmmean, d, axis=0).flatten()
                 r3 = (r1 * r2).reshape(n, d, d)
@@ -102,27 +117,41 @@ class GMM:
 
                 covars[k] = (1.0 / N_k[k]) * temp
 
-            # compute loglikelihood
-            p = np.zeros((self.k, n))
-            for k in range(self.k):
-                p[k] = alphas[k] * self.P(x, means, covars, d, k)
+            doprint()
+            doprint("alphas updated", alphas)
+            doprint("means updated", means)
+            doprint("covars updated", covars)
 
-            loglike = np.log10(p.sum(axis=0)).sum()
-            logl.append(loglike)
+            if np.isnan(loglikelihood) \
+                    or np.isnan(loglikelihood) \
+                    or np.isinf(loglikelihood) \
+                    or np.isneginf(loglikelihood):
+                if not doVerbose and dumgLogsOnNan:
+                    dumpLogs()
+                break
 
-            print("\rFinished iteration {} with log loglikelihood [{}]".format(iteration, loglike), end="")
             iteration += 1
-
-            if iteration > 1 and np.abs(loglike - logl[-2]) < epsilon:
+            if iteration > 1 and np.abs(loglikelihood - loglikelihoods[-2]) < epsilon:
                 break
 
         self.w = w
 
+def dumpLogs(count=50):
+    for log in logs[-count:]:
+        print(log)
+
 def doprint(*args):
+    global logs
+
+    s = ""
+    for arg in args:
+        s += str(arg) + " "
+
     if doVerbose:
-        for arg in args:
-            print(arg, end=" ")
-        print("")
+        print(s)
+        print()
+
+    logs.append(s)
 
 # conversion from RGB to Cie L*a*b* color space is done as per
 # https://docs.opencv.org/2.4/modules/imgproc/doc/miscellaneous_transformations.html?highlight=cvtcolor#cvtcolor
@@ -160,10 +189,10 @@ def rgb2CieLab(rgbArray):
             ab[ninds] = 7.787 * t[ninds] + 16.0 / 116.0
         return ab
 
-    lab = np.zeros_like(rgb, np.float32)
-    lab[0] = f_L(Y) / 100
-    lab[1] = (500.0 * (f_ab(X) - f_ab(Y)) + 128) / 255
-    lab[2] = (200.0 * (f_ab(Y) - f_ab(Z)) + 128) / 255
+    lab = np.zeros((2, rgb.shape[1]), np.float32)
+    # lab[0] = f_L(Y) / 100
+    lab[0] = (500.0 * (f_ab(X) - f_ab(Y)) + 127) / 255
+    lab[1] = (200.0 * (f_ab(Y) - f_ab(Z)) + 127) / 255
 
     return lab.astype(np.float32)
 
@@ -185,7 +214,42 @@ def img2LabArray(img):
 def imshow(imgname, img):
     cv2.imshow(imgname, img.astype(np.uint8))
 
+def doGMMsegmentation(imgname=img2read, k=gmmK):
+    img = readImg(imgname)
+
+    h, w = img.shape[:2]
+
+    if k < 2:
+        raise Exception("GMM: selected K that is too small.")
+
+    print("Running GMM segmentation on image {} with {} Gaussians...".format(imgname, k))
+
+    gmm = GMM(k)
+    gmm.fit(img, featureType=gmmFeatureType)
+
+    colors = 255 * np.random.rand(k, 3) # random colors to display GMM segmentation results
+    labels = np.argmax(gmm.w, axis=1).reshape((h, w))
+    u, c = np.unique(labels, return_counts=True)
+    seg = np.zeros_like(img)
+    for i in range(k):
+        seg[labels == i] = colors[i]
+
+    print("Results: ", u, c)
+
+    if doShowImage:
+        cv2.imshow("img", img)
+        cv2.imshow("GMM-{}".format(k), seg)
+        cv2.waitKey()
+
+    if doSaveSegmented:
+        cv2.imwrite("{}/{}-segmented-gmm{}-{}.png".format(imgResultFolder, imgname.split('.')[0], k, gmmFeatureType), seg)
+
 def main():
+    for k in range(2, 9, 2):
+        doGMMsegmentation(k=k)
+
+    #####################
+
     # a = np.array([[0,0],
     #               [1,2],
     #               [3,2]])
@@ -200,32 +264,9 @@ def main():
     #     out[i] = (a[i].dot(b) * a[i]).sum()
     # doprint(out)
 
-#####################
 
-    img = readImg(img2read)
-    w, h = img.shape[:2]
 
-    k = gmmK
-    if k < 2:
-        raise Exception("GMM: selected K that is too small.")
-
-    gmm = GMM(k)
-    gmm.fit(img, gmmFeatureType)
-
-    colors = 255 * np.random.rand(k, 3) # random colors to display GMM segmentation results
-    labels = np.argmax(gmm.w, axis=1).reshape((w, h))
-    u, c = np.unique(labels, return_counts=True)
-    seg = np.zeros_like(img)
-    for i in range(k):
-        seg[labels == i] = colors[i]
-
-    print("Results: ", u, c)
-
-    cv2.imshow("img", img)
-    cv2.imshow("GMM-{}".format(k), seg)
-    cv2.waitKey()
-
-# #####################
+#     #####################
 #     d = 3
 #     wk = np.array([0.25,0.25,0.5,0.3,0.1]).reshape(5, 1,1)
 #     count = wk.shape[0]
@@ -250,9 +291,6 @@ def main():
 #
 #     print(r4)
 #     print(c3)
-
-
-
 
 if __name__=="__main__":
     main()
