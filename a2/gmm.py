@@ -2,14 +2,20 @@ import numpy as np
 import cv2
 
 doPlots = True
-doVerbose = True
+
+doVerbose = False
+# doVerbose = True
 
 imgFolder = "images"
 imgName0 = "69020.jpg"
 imgName1 = "227092.jpg"
 imgName2 = "260058.jpg"
 
-rescale = 0.25
+rescale = 1
+gmmK = 2
+gmmMaxIterations = 500
+gmmFeatureType = "lab"
+img2read = imgName0
 
 # GMMs and EM algorithm implemented as per
 # http://www.ics.uci.edu/~smyth/courses/cs274/notes/EMnotes.pdf
@@ -19,113 +25,110 @@ class GMM:
                  ):
         self.k = k
 
+    def P(self, x, means, covars, d, k):
+        xmu = x - means[k]
+
+        det = np.linalg.det(covars[k])
+        inv = np.linalg.inv(covars[k])
+
+        exponents = ((np.dot(xmu, inv)) * xmu).sum(axis=1) if d > 1 else (xmu * xmu * inv).sum(axis=1)
+
+        return 1.0 / ((2 * np.pi) ** d * det) ** 0.5 * np.exp(-0.5 * exponents)
+
     def fit(self,
             img,
-            featureType = "I", # can be "I", "RGB", "Lab"
-            maxIterations = 20
+            featureType = "i", # can be "I", "RGB", "Lab"
+            gmmMaxIterations = gmmMaxIterations,
+            epsilon=1e-4
             ):
 
-        if featureType == "I":
-            x = img2IntenstityArray(img)
-            dim = 1
-        elif featureType == "RGB":
-            x = img2rgbArray(img / 255.0)
-            dim = 3
-        elif featureType == "Lab":
-            x = rgb2CieLab(img2rgbArray(img / 255.0))
-            dim = 3
+        featureType = featureType.lower()
+
+        if featureType == "i":
+            x = img2IntenstityArray(img) / 255
+        elif featureType == "rgb":
+            x = img2rgbArray(img) / 255
+        elif featureType == "lab":
+            x = rgb2CieLab(img2rgbArray(img))
         else:
-            raise Exception("GMM: Attempting to fit using unsupported feature format.")
+            raise Exception("GMM: Attempting to fit using unsupported feature format. Use 'I', 'RGB', or 'LAB'.")
 
         x = x.transpose() # transpose to be N x d
         n, d = x.shape[:2] # number of samples and dimensionality of each sample
 
-        ## Setup GMM parameters
-
         alphas = np.array([1.0 / self.k for i in range(self.k)], np.float32) # alphas for each Gaussian
         means = x[(np.random.rand(self.k) * n).astype(np.int)] # pick random means for each Gaussian
-        covars = np.array([np.eye(d) if d > 1 else [1] for i in range(self.k)], np.float32) # identity covar matrices for each Gaussian
+        covars = np.array([np.eye(d) if d > 1 else [[1]] for i in range(self.k)], np.float32) # identity covar matrices for each Gaussian
 
         w = np.zeros((n, self.k), np.float32) # membership weight of each data point to each Gaussian
 
-        logl = [] # log likelihoods over iterations
+        logl = [1000000000000] # log likelihoods over iterations
         iteration = 0
-        while iteration < maxIterations:
-
-            print("means", means)
-            print("covars", covars)
+        while iteration < gmmMaxIterations:
 
             # E-step
             p = np.zeros((self.k, n))
             for k in range(self.k):
-                xmu = x - means[k]
-                print("xmu", xmu)
-                det = np.linalg.det(covars[k]) if d > 1 else covars[k]
-                inv = np.linalg.inv(covars[k]) if d > 1 else 1.0 / covars[k]
-
-                print("inv", inv)
-
-                exponents = ((np.dot(xmu, inv)) * xmu).sum(axis=1) if d > 1 else (xmu * xmu * inv).sum(axis=1)
-
-                print("EXPONENTS", (exponents < 0).any())
-
-                p[k] = alphas[k] / (((2 * np.pi) ** d * det) ** 0.5) * np.exp(-0.5 * exponents)
+                p[k] = alphas[k] * self.P(x, means, covars, d, k)
 
             psum = np.sum(p, axis=0)
+
             for k in range(self.k):
                 w[:, k] = p[k] / psum
 
             # normalize w for each data point (sum of w_k for each point must be 1)
             wmag = np.sum(w, axis=1)
-            print("wmag", wmag)
+
             for k in range(self.k):
                 w[:, k] /= wmag
 
-            print("updated w", w)
-
             # M-step
             N_k = w.sum(axis=0)
+            N_ksum = w.sum()
 
-            print("nk", N_k)
-
-            alphas = N_k / n # update alpha
-
-            print("alphas", alphas)
+            alphas = N_k / N_ksum # update alpha
 
             for k in range(self.k):
                 means[k] = (1.0 / N_k[k]) * (x * w[:, k].reshape(-1, 1)).sum(axis=0)
 
+                wk = w[:, k].reshape(n, 1, 1)
+
                 xmmean = x - means[k]
-                print("xmmean", xmmean.shape, xmmean.dtype)
 
-                xmeanxt = (xmmean * xmmean).sum(axis=1)
-                print("xmeanxt", xmeanxt.shape, xmeanxt.dtype)
-
-                temp = (xmeanxt * w[:, k])
-                print("temp", temp.shape)
-                temp = temp.sum(axis=0)
-
-                print("temp", temp)
-                print(temp.shape, temp.dtype)
-
+                r1 = np.repeat(xmmean, d)
+                r2 = np.repeat(xmmean, d, axis=0).flatten()
+                r3 = (r1 * r2).reshape(n, d, d)
+                temp = (r3 * wk).sum(0)
 
                 covars[k] = (1.0 / N_k[k]) * temp
 
-            print("updated means", means)
-            print("updated covars", covars)
+            # compute loglikelihood
+            p = np.zeros((self.k, n))
+            for k in range(self.k):
+                p[k] = alphas[k] * self.P(x, means, covars, d, k)
 
+            loglike = np.log10(p.sum(axis=0)).sum()
+            logl.append(loglike)
 
-
-            print("Finished iteration", iteration)
+            print("\rFinished iteration {} with log loglikelihood [{}]".format(iteration, loglike), end="")
             iteration += 1
 
+            if iteration > 1 and np.abs(loglike - logl[-2]) < epsilon:
+                break
 
+        self.w = w
 
+def doprint(*args):
+    if doVerbose:
+        for arg in args:
+            print(arg, end=" ")
+        print("")
 
 # conversion from RGB to Cie L*a*b* color space is done as per
 # https://docs.opencv.org/2.4/modules/imgproc/doc/miscellaneous_transformations.html?highlight=cvtcolor#cvtcolor
 def rgb2CieLab(rgbArray):
-    rgb = rgbArray.transpose()
+    # input rgb as float 0-1 and a 3 x N array
+    rgb = rgbArray / 255
 
     m = np.array([[0.412453, 0.357580, 0.180423],
                   [0.212671, 0.715160, 0.072169],
@@ -169,12 +172,12 @@ def readImg(imgname, imgfolder=imgFolder):
 
 def img2rgbArray(img):
     w, h = img.shape[:2]
-    ar = img.flatten().reshape((w * h, 3)).transpose()
-    return ar.astype(np.float32) / 255
+    ar = img.flatten().reshape((w * h, 3)).transpose().astype(np.float32)
+    return ar
 
 def img2IntenstityArray(img):
     ar = (img[..., 0] * 0.2126 + img[..., 1] * 0.7152 + img[..., 2] * 0.0722).reshape((1, -1)).astype(np.float32)
-    return ar / 255
+    return ar
 
 def img2LabArray(img):
     return rgb2CieLab(img)
@@ -183,19 +186,6 @@ def imshow(imgname, img):
     cv2.imshow(imgname, img.astype(np.uint8))
 
 def main():
-    img = readImg(imgName0)
-    #
-    # a = np.array([[0,0],
-    #               [1,2],
-    #               [3,2]])
-    # b = np.array([[0],
-    #               [1],
-    #               [2]])
-    # print(a)
-    # print(b)
-    # print(a.shape, b.shape)
-    # print(a*b)
-
     # a = np.array([[0,0],
     #               [1,2],
     #               [3,2]])
@@ -203,16 +193,66 @@ def main():
     # b = np.array([[0,4],
     #               [1,2]])
     #
-    # print()
+    # doprint()
     #
     # out = np.zeros(a.shape[0])
     # for i in range(a.shape[0]):
     #     out[i] = (a[i].dot(b) * a[i]).sum()
-    # print(out)
+    # doprint(out)
+
+#####################
+
+    img = readImg(img2read)
+    w, h = img.shape[:2]
+
+    k = gmmK
+    if k < 2:
+        raise Exception("GMM: selected K that is too small.")
+
+    gmm = GMM(k)
+    gmm.fit(img, gmmFeatureType)
+
+    colors = 255 * np.random.rand(k, 3) # random colors to display GMM segmentation results
+    labels = np.argmax(gmm.w, axis=1).reshape((w, h))
+    u, c = np.unique(labels, return_counts=True)
+    seg = np.zeros_like(img)
+    for i in range(k):
+        seg[labels == i] = colors[i]
+
+    print("Results: ", u, c)
+
+    cv2.imshow("img", img)
+    cv2.imshow("GMM-{}".format(k), seg)
+    cv2.waitKey()
+
+# #####################
+#     d = 3
+#     wk = np.array([0.25,0.25,0.5,0.3,0.1]).reshape(5, 1,1)
+#     count = wk.shape[0]
+#     xmean = np.arange(d*count).reshape(count, d)
+#
+#     r1 = np.repeat(xmean,d)
+#     r2 = np.repeat(xmean,d,axis=0).flatten()
+#     r3 = (r1 * r2).reshape(count, d, d)
+#     r4 = (r3 * wk).sum(0) / count
+#
+#     c = np.array([[0, 1, 2]])
+#     c1 = c.transpose().dot(c) * wk[0]
+#     c = np.array([[3, 4, 5]])
+#     c2 = c.transpose().dot(c) * wk[1]
+#     c = np.array([[6, 7, 8]])
+#     c3 = c.transpose().dot(c) * wk[2]
+#     c = np.array([[9, 10, 11]])
+#     c4 = c.transpose().dot(c) * wk[3]
+#     c = np.array([[12, 13, 14]])
+#     c5 = c.transpose().dot(c) * wk[4]
+#     c3 = (c1 + c2 + c3 + c4 + c5) / 5
+#
+#     print(r4)
+#     print(c3)
 
 
-    gmm = GMM(2)
-    gmm.fit(img, "I")
+
 
 if __name__=="__main__":
     main()
