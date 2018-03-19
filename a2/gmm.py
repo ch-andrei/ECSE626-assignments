@@ -1,8 +1,9 @@
 import numpy as np
 import cv2
+from matplotlib import pyplot as plt
 
 doVerbose = False
-dumgLogsOnNan = True
+dumgLogsOnNan = False
 doSaveSegmented = True
 doShowImage = False
 
@@ -12,129 +13,17 @@ imgName0 = "69020.jpg"
 imgName1 = "227092.jpg"
 imgName2 = "260058.jpg"
 
+# GMM segmentation configuration
+img2read = imgName0
 rescale = 1
 gmmK = 2
 gmmMaxIterations = 1000 # termination if epsilon criterion isn't reached
-gmmFeatureType = "i"
-img2read = imgName0
-epsilon = 1e-2
-epsilonP = 1e-6
+gmmFeatureType = "lab"
+epsilon = 1e-2 # for convergence
+epsilonP = 1e-6 # for precision
 
+# text dumps for silent logging instead of stdout; used when doVerbose is False
 logs = []
-
-# GMMs and EM algorithm implemented as per
-# http://www.ics.uci.edu/~smyth/courses/cs274/notes/EMnotes.pdf
-class GMM:
-    def __init__(self,
-                 k, # number of gaussian clusters
-                 ):
-        self.k = k
-
-    def P(self, x, means, covars, d, k):
-        xmu = x - means[k]
-
-        det = np.linalg.det(covars[k])
-        inv = np.linalg.inv(covars[k])
-
-        exponents = ((np.dot(xmu, inv)) * xmu).sum(axis=1) if d > 1 else (xmu * xmu * inv).sum(axis=1)
-
-        return 1.0 / ((2 * np.pi) ** d * det) ** 0.5 * np.exp(-0.5 * exponents)
-
-    def fit(self,
-            img,
-            featureType = "i", # can be "I", "RGB", "Lab"
-            gmmMaxIterations = gmmMaxIterations,
-            epsilon=epsilon
-            ):
-
-        featureType = featureType.lower()
-
-        if featureType == "i":
-            x = img2IntenstityArray(img) / 255
-        elif featureType == "rgb":
-            x = img2rgbArray(img) / 255
-        elif featureType == "lab":
-            x = rgb2CieLab(img2rgbArray(img))
-        else:
-            raise Exception("GMM: Attempting to fit using unsupported feature format. Use 'I', 'RGB', or 'LAB'.")
-
-        x = x.transpose() # transpose to be N x d
-        n, d = x.shape[:2] # number of samples and dimensionality of each sample
-
-        x -= x.min() - epsilonP
-        x /= x.max() + epsilonP
-
-        print(n, d)
-        print(x.max(), x.min())
-
-        alphas = np.array([1.0 / self.k for i in range(self.k)], np.float32) # alphas for each Gaussian
-        covars = np.array([np.eye(d) if d > 1 else [[1]] for i in range(self.k)], np.float32) # identity covar matrices for each Gaussian
-
-        means = x[(np.random.rand(self.k) * n).astype(np.int)] # pick random means for each Gaussian
-
-        w = np.zeros((n, self.k), np.float32) # membership weight of each data point to each Gaussian
-
-        loglikelihoods = [] # stores log likelihoods over iterations
-        iteration = 0
-        while iteration < gmmMaxIterations:
-
-            # E-step
-
-            # compute probabilities
-            p = np.zeros((self.k, n))
-            for k in range(self.k):
-                p[k] = alphas[k] * self.P(x, means, covars, d, k)
-
-            # update log likelihood (use current information)
-            # its faster to do it here than after updating alphas, means, covars
-            loglikelihood = np.log10(p.sum(axis=0)).sum()
-            loglikelihoods.append(loglikelihood)
-
-            print("\rRunning iteration {}; current log likelihood = [{}]".format(iteration, loglikelihood), end="")
-
-            psum = np.sum(p, axis=0)
-            doprint("psumzero", (psum == 0).any())
-            for k in range(self.k):
-                w[:, k] = p[k] / (psum + epsilonP)
-
-            # M-step
-            N_k = w.sum(axis=0)
-            N_ksum = w.sum()
-
-            alphas = N_k / N_ksum # update alpha
-
-            for k in range(self.k):
-                means[k] = (1.0 / N_k[k]) * (x * w[:, k].reshape(-1, 1)).sum(axis=0)
-
-                wk = w[:, k].reshape(n, 1, 1)
-
-                # vectorized dot product computation
-                xmmean = x - means[k]
-                r1 = np.repeat(xmmean, d)
-                r2 = np.repeat(xmmean, d, axis=0).flatten()
-                r3 = (r1 * r2).reshape(n, d, d)
-                temp = (r3 * wk).sum(0)
-
-                covars[k] = (1.0 / N_k[k]) * temp
-
-            doprint()
-            doprint("alphas updated", alphas)
-            doprint("means updated", means)
-            doprint("covars updated", covars)
-
-            if np.isnan(loglikelihood) \
-                    or np.isnan(loglikelihood) \
-                    or np.isinf(loglikelihood) \
-                    or np.isneginf(loglikelihood):
-                if not doVerbose and dumgLogsOnNan:
-                    dumpLogs()
-                break
-
-            iteration += 1
-            if iteration > 1 and np.abs(loglikelihood - loglikelihoods[-2]) < epsilon:
-                break
-
-        self.w = w
 
 def dumpLogs(count=50):
     for log in logs[-count:]:
@@ -150,8 +39,46 @@ def doprint(*args):
     if doVerbose:
         print(s)
         print()
+    else:
+        logs.append(s)
 
-    logs.append(s)
+def readImg(imgname, imgfolder=imgFolder):
+    return cv2.resize(cv2.imread("{}/{}".format(imgfolder, imgname)), (0, 0), fx=rescale, fy=rescale)
+
+def img2rgbArray(img):
+    w, h = img.shape[:2]
+    ar = img.flatten().reshape((w * h, 3)).transpose().astype(np.float32)
+    return ar
+
+def img2IntenstityArray(img):
+    ar = (img[..., 0] * 0.2126 + img[..., 1] * 0.7152 + img[..., 2] * 0.0722).reshape((1, -1)).astype(np.float32)
+    return ar
+
+def img2LabArray(img):
+    return rgb2CieLab(img)
+
+def imshow(imgname, img):
+    cv2.imshow(imgname, img.astype(np.uint8))
+
+def readAndPreprocessImage(imgname=img2read,
+                           featureType=gmmFeatureType
+                           ):
+    img = readImg(imgname)
+
+    featureType = featureType.lower()
+
+    if featureType == "i":
+        x = img2IntenstityArray(img) / 255
+    elif featureType == "rgb":
+        x = img2rgbArray(img) / 255
+    elif featureType == "lab":
+        x = rgb2CieLab(img2rgbArray(img))
+    else:
+        raise Exception("Unsupported feature format. Use 'I', 'RGB', or 'LAB'.")
+
+    x = x.transpose() # transpose X to be N x d
+
+    return img, x
 
 # conversion from RGB to Cie L*a*b* color space is done as per
 # https://docs.opencv.org/2.4/modules/imgproc/doc/miscellaneous_transformations.html?highlight=cvtcolor#cvtcolor
@@ -190,42 +117,291 @@ def rgb2CieLab(rgbArray):
         return ab
 
     lab = np.zeros((2, rgb.shape[1]), np.float32)
-    # lab[0] = f_L(Y) / 100
+    # L = f_L(Y) / 100
     lab[0] = (500.0 * (f_ab(X) - f_ab(Y)) + 127) / 255
     lab[1] = (200.0 * (f_ab(Y) - f_ab(Z)) + 127) / 255
 
     return lab.astype(np.float32)
 
-def readImg(imgname, imgfolder=imgFolder):
-    return cv2.resize(cv2.imread("{}/{}".format(imgfolder, imgname)), (0, 0), fx=rescale, fy=rescale)
+# GMMs and EM algorithm implemented as per
+# http://www.ics.uci.edu/~smyth/courses/cs274/notes/EMnotes.pdf
+class GMM:
+    def __init__(self,
+                 k, # number of gaussian clusters
+                 ):
+        self.k = k
+        self.trained = False
+        self.alphas = None
+        self.means = None
+        self.covars = None
+        self.w = None
+        self.loglikelihoods = None
+        self.bics = None
 
-def img2rgbArray(img):
-    w, h = img.shape[:2]
-    ar = img.flatten().reshape((w * h, 3)).transpose().astype(np.float32)
-    return ar
+    def P(self, x, means, covars, d, k):
+        xmu = x - means[k]
+        det = np.linalg.det(covars[k])
+        inv = np.linalg.inv(covars[k])
 
-def img2IntenstityArray(img):
-    ar = (img[..., 0] * 0.2126 + img[..., 1] * 0.7152 + img[..., 2] * 0.0722).reshape((1, -1)).astype(np.float32)
-    return ar
+        exponents = ((np.dot(xmu, inv)) * xmu).sum(axis=1) if d > 1 else (xmu * xmu * inv).sum(axis=1)
 
-def img2LabArray(img):
-    return rgb2CieLab(img)
+        return 1.0 / ((2 * np.pi) ** d * det) ** 0.5 * np.exp(-0.5 * exponents)
 
-def imshow(imgname, img):
-    cv2.imshow(imgname, img.astype(np.uint8))
+    # predict only
+    def predict(self, x):
+        if not self.trained:
+            raise Exception("GMM: Attempting to predict using untrained GMM.")
 
-def doGMMsegmentation(imgname=img2read, k=gmmK):
-    img = readImg(imgname)
+        n, d = x.shape[:2] # number of samples and dimensionality of each sample
+        w = np.zeros((n, self.k), np.float32) # membership weight of each data point to each Gaussian
+
+        # compute raw probabilities
+        p = np.zeros((self.k, n))
+        for k in range(self.k):
+            p[k] = self.P(x, self.means, self.covars, d, k)
+
+        # multiply probabilities by alpha values
+        p *= self.alphas.reshape(self.k, 1)
+
+        psum = p.sum(axis=0)
+
+        # compute BIC value
+        bic = -2.0 * np.log(psum).sum() + np.log(n) * self.bic_k
+
+        # compute log likelihood value
+        loglikelihood = np.log10(psum).sum()
+
+        # compute membership weights
+        for k in range(self.k):
+            w[:, k] = p[k] / (psum + epsilonP)  # add epsilon to avoid division by zero
+
+        return w, loglikelihood, bic
+
+    def fit(self,
+            x,
+            gmmMaxIterations=gmmMaxIterations,
+            epsilon=epsilon
+            ):
+        n, d = x.shape[:2] # number of samples and dimensionality of each sample
+
+        # rescale to full range
+        x -= x.min() - epsilonP # add epsilon to avoid 0 and 1 values
+        x /= x.max() + epsilonP # add epsilon to avoid 0 and 1 values
+
+        alphas = np.array([1.0 / self.k for i in range(self.k)], np.float32) # alphas for each Gaussian
+        covars = np.array([np.eye(d) if d > 1 else [[1]] for i in range(self.k)], np.float32) # identity covar matrices for each Gaussian
+        means = x[(np.random.rand(self.k) * n).astype(np.int)] # pick random means for each Gaussian
+
+        w = np.zeros((n, self.k), np.float32) # membership weight of each data point to each Gaussian
+
+        # constant for computing BIC
+        # k model complexity: number of means params (k*d) + number of covar params (k*d*d) + number of alpha params (k)
+        self.bic_k = self.k * d + self.k * d * d + self.k
+
+        loglikelihoods = [] # stores log likelihoods over iterations
+        bics = [] # stores BIC values
+        iteration = 0
+        while iteration < gmmMaxIterations:
+
+            ########## E-step ##########
+
+            # compute raw probabilities
+            p = np.zeros((self.k, n))
+            for k in range(self.k):
+                p[k] = self.P(x, means, covars, d, k)
+
+            # multiply probabilities by alpha values
+            p *= alphas.reshape(self.k, 1)
+
+            # now update BIC and log likelihoods: this is an optimization -> for speedup
+            # its faster to do it here than after updating alphas, means, covars, because we don't need to recompute
+            # the probabilities for each Gaussian for each X.
+            # this essentially delays convergence check by 1 iteration, since we compute likelihood before updating.
+            # this does not affect correctness, only the timing of the check
+
+            psum = p.sum(axis=0)
+
+            # update BIC values
+            bic = -2.0 * np.log(psum).sum() + np.log(n) * self.bic_k
+            bics.append(bic)
+
+            # update log likelihood values
+            loglikelihood = np.log10(psum).sum()
+            loglikelihoods.append(loglikelihood)
+
+            print("\rRunning iteration {}; current loglike = [{}], bic [{}]".format(iteration, loglikelihood, bic), end="")
+
+            # compute membership weights
+            for k in range(self.k):
+                w[:, k] = p[k] / (psum + epsilonP) # add epsilon to avoid division by zero
+
+            ########## M-step ##########
+
+            N_k = w.sum(axis=0)
+
+            # update alphas for each Gaussian
+            alphas = N_k / w.sum()
+
+            for k in range(self.k):
+                # update mean
+                means[k] = (1.0 / N_k[k]) * (x * w[:, k].reshape(-1, 1)).sum(axis=0)
+
+                # now we must compute dot products of MANY PAIRS of vectors INDEPENDENTLY
+                # I could not figure out a good vectorized way to do this using built in functions so I improvised
+                # example:
+                # for d=3 and n=2, X is [a b c, d e f] which is 2 vectors of size 3
+                # we want individual dot products [a b c]T dot [a b c], [d e f]T dot [d e f], so two 3x3 matrices
+                # individually, for each of the N 1d vectors f form [a b c], we would get the dot product
+                #                        [aa ab ac]
+                # [a b c]T dot [a b c] = [ab bb bc]
+                #                        [ac bc cc]
+                # for N 1d vectors, we can do this by creating the following matrices and simple element multiplication
+                # [a a a] [a b c]   [aa ab ac]
+                # [b b b] [a b c]   [ab bb bc]
+                # [c c c] [a b c] = [ac bc cc]
+                # [d d d] [d e f] = [dd de df]
+                # [e e e] [d e f]   [de ee ef]
+                # [f f f] [d e f]   [df de df]
+                wk = w[:, k].reshape(n, 1, 1)
+                xmmean = x - means[k]
+                r1 = np.repeat(xmmean, d)
+                r2 = np.repeat(xmmean, d, axis=0).flatten()
+                r3 = (r1 * r2).reshape(n, d, d)
+                temp = (r3 * wk).sum(0)
+
+                covars[k] = (1.0 / N_k[k]) * temp
+
+            doprint()
+            doprint("alphas updated", alphas)
+            doprint("means updated", means)
+            doprint("covars updated", covars)
+
+            if np.isnan(loglikelihood) \
+                    or np.isinf(loglikelihood) \
+                    or np.isneginf(loglikelihood):
+                if not doVerbose and dumgLogsOnNan:
+                    dumpLogs()
+                break
+
+            iteration += 1
+            if iteration > 1 and np.abs(loglikelihood - loglikelihoods[-2]) < epsilon:
+                # stop if convergence has been achieved
+                break
+
+        # store the final values
+        self.alphas = alphas
+        self.means = means
+        self.covars = covars
+        self.w = w
+        self.loglikelihoods = loglikelihoods
+        self.bics = bics
+        self.trained = True
+
+def doKFoldCrossValidation(imgname=img2read,
+                           k_crossValidation=5,
+                           featureType=gmmFeatureType,
+                           maxK=8
+                           ):
+    img, x = readAndPreprocessImage(imgname=imgname, featureType=featureType)
+
+    logkey = "Log Likelihood"
+    bickey = "Bayesian Information Criterion"
+
+    results = {}
+    for k_gmm in range(2, maxK+1):
+        xshuf = x.copy()
+        np.random.shuffle(xshuf) # randomize ordering of the vector X
+
+        n, d = x.shape[:2]  # number of samples and dimensionality of each sample
+
+        # this won't use every single data point, but that's fine
+        n_crossval = int(n / k_crossValidation)
+
+        gmm = GMM(k_gmm)
+
+        crt = []
+        for k_crossVal in range(k_crossValidation):
+            print("\nRunning crossval with {} Gaussians on set {}".format(k_gmm, k_crossVal))
+
+            # mask to separate validation and training sets
+            mask = np.zeros(n, np.bool)
+            mask[n_crossval*k_crossVal: n_crossval*(k_crossVal+1)] = 1
+
+            xt = xshuf[mask == 0] # training
+            yt = xshuf[mask == 1] # testing
+
+            # fit on train data
+            gmm.fit(xt)
+
+            # predict on test data
+            w, logl, bic = gmm.predict(yt)
+
+            crt.append({logkey: logl, bickey: bic})
+
+        def checkNan(val):
+            return np.isnan(val) or np.isinf(val) or np.isneginf(val)
+
+        # average cross validation results
+        logl = 0
+        bic = 0
+        count = [0, 0]
+        for values in crt:
+            if not checkNan(values[logkey]):
+                count[0] += 1
+                logl += values[logkey]
+            if not checkNan(values[bickey]):
+                count[1] == 1
+                bic += values[bickey]
+
+        logl /= count[0] + epsilonP # epsilon to avoid division by zero in rare failure cases
+        bic  /= count[1] + epsilonP # epsilon to avoid division by zero in rare failure cases
+
+        results[k_gmm] = {logkey:logl, bickey:-bic}
+
+    # plot the results
+    ks = []
+    logs = []
+    bics = []
+    for k_gmm in results:
+        ks.append(k_gmm)
+        logs.append(results[k_gmm][logkey])
+        bics.append(results[k_gmm][bickey])
+
+    fig, ax1 = plt.subplots()
+
+    color = 'tab:red'
+    ax1.set_xlabel('Number of Gaussians')
+    ax1.set_ylabel(logkey, color=color)
+    ax1.plot(ks, logs, 'o-', color=color)
+    ax1.tick_params(axis='y', labelcolor=color)
+
+    ax2 = ax1.twinx()
+
+    color = 'tab:blue'
+    ax2.set_ylabel(bickey, color=color)
+    ax2.plot(ks, bics, 'o-', color=color)
+    ax2.tick_params(axis='y', labelcolor=color)
+
+    fig.tight_layout()
+    plt.show()
+
+def doGMMsegmentation(imgname=img2read,
+                      k=gmmK,
+                      featureType=gmmFeatureType,
+                      saveSegmented=doSaveSegmented,
+                      showImage=doShowImage
+                      ):
+    img, x = readAndPreprocessImage(imgname=imgname, featureType=featureType)
 
     h, w = img.shape[:2]
 
     if k < 2:
         raise Exception("GMM: selected K that is too small.")
 
-    print("Running GMM segmentation on image {} with {} Gaussians...".format(imgname, k))
+    print("Running '{}' features GMM segmentation on image {} with {} Gaussians...".format(featureType, imgname, k))
 
     gmm = GMM(k)
-    gmm.fit(img, featureType=gmmFeatureType)
+    gmm.fit(x)
 
     colors = 255 * np.random.rand(k, 3) # random colors to display GMM segmentation results
     labels = np.argmax(gmm.w, axis=1).reshape((h, w))
@@ -236,61 +412,25 @@ def doGMMsegmentation(imgname=img2read, k=gmmK):
 
     print("Results: ", u, c)
 
-    if doShowImage:
+    if showImage:
         cv2.imshow("img", img)
         cv2.imshow("GMM-{}".format(k), seg)
         cv2.waitKey()
 
-    if doSaveSegmented:
-        cv2.imwrite("{}/{}-segmented-gmm{}-{}.png".format(imgResultFolder, imgname.split('.')[0], k, gmmFeatureType), seg)
+    if saveSegmented:
+        imgname2write ="{}/{}-segmented-gmm{}-{}.png".format(imgResultFolder, imgname.split('.')[0], k, gmmFeatureType)
+        cv2.imwrite(imgname2write, seg)
 
 def main():
-    for k in range(2, 9, 2):
-        doGMMsegmentation(k=k)
+
+    doKFoldCrossValidation()
 
     #####################
 
-    # a = np.array([[0,0],
-    #               [1,2],
-    #               [3,2]])
-    #
-    # b = np.array([[0,4],
-    #               [1,2]])
-    #
-    # doprint()
-    #
-    # out = np.zeros(a.shape[0])
-    # for i in range(a.shape[0]):
-    #     out[i] = (a[i].dot(b) * a[i]).sum()
-    # doprint(out)
+    # do segmentation and save images
+    # for k in range(2, 9, 2):
+    #     doGMMsegmentation(k=k)
 
-
-
-#     #####################
-#     d = 3
-#     wk = np.array([0.25,0.25,0.5,0.3,0.1]).reshape(5, 1,1)
-#     count = wk.shape[0]
-#     xmean = np.arange(d*count).reshape(count, d)
-#
-#     r1 = np.repeat(xmean,d)
-#     r2 = np.repeat(xmean,d,axis=0).flatten()
-#     r3 = (r1 * r2).reshape(count, d, d)
-#     r4 = (r3 * wk).sum(0) / count
-#
-#     c = np.array([[0, 1, 2]])
-#     c1 = c.transpose().dot(c) * wk[0]
-#     c = np.array([[3, 4, 5]])
-#     c2 = c.transpose().dot(c) * wk[1]
-#     c = np.array([[6, 7, 8]])
-#     c3 = c.transpose().dot(c) * wk[2]
-#     c = np.array([[9, 10, 11]])
-#     c4 = c.transpose().dot(c) * wk[3]
-#     c = np.array([[12, 13, 14]])
-#     c5 = c.transpose().dot(c) * wk[4]
-#     c3 = (c1 + c2 + c3 + c4 + c5) / 5
-#
-#     print(r4)
-#     print(c3)
 
 if __name__=="__main__":
     main()
