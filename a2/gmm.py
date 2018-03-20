@@ -14,11 +14,11 @@ imgName1 = "227092.jpg"
 imgName2 = "260058.jpg"
 
 # GMM segmentation configuration
-img2read = imgName0
-rescale = 0.25
+img2read = imgName2
+rescale = 1
 gmmK = 2
 gmmMaxIterations = 250 # termination if epsilon criterion isn't reached
-gmmFeatureType = "i"
+gmmFeatureType = "lab"
 epsilon = 1e-3 # for convergence
 epsilonP = 1e-6 # for precision
 
@@ -448,14 +448,13 @@ def doGMMsegmentation(imgname=img2read,
 
 def main():
 
-    doKFoldCrossValidation()
+    # doKFoldCrossValidation()
 
     #####################
 
     # do segmentation and save images
-    # for k in range(2, 9, 2):
-    #     doGMMsegmentation(k=2)
-
+    for k in range(2, 7, 2):
+        doGMMsegmentation(k=k)
 
 if __name__=="__main__":
     main()
