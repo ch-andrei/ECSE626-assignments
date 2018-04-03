@@ -15,7 +15,8 @@ class ClusterNode:
                  X,
                  w,
                  cluster_inds,
-                 node_id):
+                 node_id,
+                 precision):
         self.X = X
         self.node_id = node_id
         self.cluster_inds = cluster_inds
@@ -34,6 +35,9 @@ class ClusterNode:
 
         # covariance matrix
         self.R_cov = self.R - single_vector_dot(self.m) / self.N
+
+        self.q = np.nan_to_num(self.q)
+        self.R_cov = np.nan_to_num(self.R_cov) + precision * np.eye(self.dim) # to prevent singularity
 
         # determine unit vector e; this is the direction in which cluster variance is the greatest
         V, E = np.linalg.eig(self.R_cov)
@@ -55,8 +59,10 @@ class ClusterTree:
     def __init__(self,
                  X,
                  w,
-                 convergence_threshold=0.01,
-                 delete_arrays_on_node_split=True
+                 convergence_threshold=1e-3,
+                 max_splits=5,
+                 delete_arrays_on_node_split=True,
+                 precision=1e-6
                  ):
         # X: samples; array of shape (N, d), where N is the number of samples and d is the dimensionality of each sample
         # W: sample weights; array of shape (N)
@@ -64,17 +70,22 @@ class ClusterTree:
 
         self.convergence_threshold = convergence_threshold
         self.delete_arrays_on_node_split = delete_arrays_on_node_split
+        self.precision = precision
 
         self.X = X
         self.root_id = 1
 
-        root_node = ClusterNode(X, w, np.arange(X.shape[0]), self.root_id)
+        root_node = ClusterNode(X, w, np.arange(X.shape[0]), self.root_id, self.precision)
         self.nodes = {self.root_id: root_node}
 
-        while self.compute_wtse() > X.shape[0] * self.convergence_threshold:
-            self.split()
+        splits = 0
+        while self.compute_wtse() > X.shape[0] * self.convergence_threshold and splits < max_splits:
+            if not self.split():
+                break
+            else:
+                splits += 1
 
-        print("Finished clustering; final tree has {} nodes".format(len(self.nodes)))
+        # print("Finished clustering; final tree has {} nodes".format(len(self.nodes)))
 
     def get_child_ids(self, node_id):
         return node_id * 2, node_id * 2 + 1
@@ -94,10 +105,14 @@ class ClusterTree:
         sorted_nodes = sorted(self.get_leaf_nodes(), key=lambda node: node.e_value)
 
         index = 1
+        split = False
         while index <= len(sorted_nodes):
-            if self.split_node(sorted_nodes[-index].node_id):
+            split = self.split_node(sorted_nodes[-index].node_id)
+            if split:
                 break
             index += 1
+
+        return split
 
     def split_node(self, node_id):
         node = self.nodes[node_id]
@@ -131,8 +146,8 @@ class ClusterTree:
 
         # children
         id1, id2 = self.get_child_ids(node_id)
-        self.nodes[id1] = (ClusterNode(X_1, w1, cluster_inds1, id1))
-        self.nodes[id2] = (ClusterNode(X_2, w2, cluster_inds2, id2))
+        self.nodes[id1] = (ClusterNode(X_1, w1, cluster_inds1, id1, self.precision))
+        self.nodes[id2] = (ClusterNode(X_2, w2, cluster_inds2, id2, self.precision))
 
         return True
 
@@ -142,13 +157,13 @@ class ClusterTree:
         for node in self.get_leaf_nodes():
             means.append(node.q)
             covars.append(node.R_cov)
-        return means, covars
+        return np.array(means), np.array(covars)
 
     def compute_wtse(self):
         wtse = 0
         for node in self.get_leaf_nodes():
             wtse += (node.w[:, np.newaxis] * (node.X - node.q) ** 2).sum()
-        print("computed wtse", wtse)
+        # print("computed wtse", wtse)
         return wtse
 
     def __str__(self):
