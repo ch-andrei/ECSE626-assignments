@@ -16,7 +16,8 @@ class ClusterNode:
                  w,
                  cluster_inds,
                  node_id,
-                 precision):
+                 precision,
+                 sigma_C):
         self.X = X
         self.node_id = node_id
         self.cluster_inds = cluster_inds
@@ -26,7 +27,7 @@ class ClusterNode:
         wx = w.reshape(-1, 1) * X
         self.R = multiple_dot_product(wx, X).sum(axis=0)
         self.m = wx.sum(axis=0)
-        self.N = w.sum()
+        self.N = w.sum() + precision  # add some small constant to prevent div by zero
 
         self.n_samples, self.dim = X.shape[:2]
 
@@ -34,10 +35,15 @@ class ClusterNode:
         self.q = self.m / self.N
 
         # covariance matrix
-        self.R_cov = self.R - single_vector_dot(self.m) / self.N
+        self.R_cov = self.R - single_vector_dot(self.m) / self.N + precision * np.eye(self.dim)
+
+        u, s, v = np.linalg.svd(self.R_cov)
+        self.R_cov = u.dot(np.diag(s + sigma_C)).dot(np.atleast_2d(v).T)
+
+        # print("rcovshape", self.R_cov.shape)
 
         self.q = np.nan_to_num(self.q)
-        self.R_cov = np.nan_to_num(self.R_cov) + precision * np.eye(self.dim) # to prevent singularity
+        self.R_cov = np.nan_to_num(self.R_cov)
 
         # determine unit vector e; this is the direction in which cluster variance is the greatest
         V, E = np.linalg.eig(self.R_cov)
@@ -62,7 +68,8 @@ class ClusterTree:
                  convergence_threshold=1e-3,
                  max_splits=5,
                  delete_arrays_on_node_split=True,
-                 precision=1e-6
+                 precision=1e-6,
+                 sigma_C=0.01
                  ):
         # X: samples; array of shape (N, d), where N is the number of samples and d is the dimensionality of each sample
         # W: sample weights; array of shape (N)
@@ -71,11 +78,12 @@ class ClusterTree:
         self.convergence_threshold = convergence_threshold
         self.delete_arrays_on_node_split = delete_arrays_on_node_split
         self.precision = precision
+        self.sigma_C = sigma_C
 
         self.X = X
         self.root_id = 1
 
-        root_node = ClusterNode(X, w, np.arange(X.shape[0]), self.root_id, self.precision)
+        root_node = ClusterNode(X, w, np.arange(X.shape[0]), self.root_id, self.precision, self.sigma_C)
         self.nodes = {self.root_id: root_node}
 
         splits = 0
@@ -146,8 +154,8 @@ class ClusterTree:
 
         # children
         id1, id2 = self.get_child_ids(node_id)
-        self.nodes[id1] = (ClusterNode(X_1, w1, cluster_inds1, id1, self.precision))
-        self.nodes[id2] = (ClusterNode(X_2, w2, cluster_inds2, id2, self.precision))
+        self.nodes[id1] = ClusterNode(X_1, w1, cluster_inds1, id1, self.precision, self.sigma_C)
+        self.nodes[id2] = ClusterNode(X_2, w2, cluster_inds2, id2, self.precision, self.sigma_C)
 
         return True
 

@@ -1,14 +1,14 @@
 import numpy as np
 import cv2
 from numba import jit
-import datetime
+import time
 
 from project.bouman_orchard_clustering import *
 
 ########################################################################################################################
 
 do_verbose = False
-do_save_segmented = False
+do_save_segmented = True
 do_show_image = False
 
 ########################################################################################################################
@@ -44,6 +44,18 @@ img_name2 = "260058.jpg"
 img_name3 = "gandalf.png"
 img_name3_trimap = "gandalfTrimap.png"
 
+img_name4 = "jomojo.JPG"
+img_name4_trimap = "jomojo_trimap.png"
+
+img_name5 = "knockout01.png"
+img_name5_trimap = "knockout01_trimap.png"
+
+img_name6 = "jomojo1.png"
+img_name6_trimap = "jomojo1_trimap.png"
+
+img_name7 = "girl.png"
+img_name7_trimap = "girl_trimap.png"
+
 ########################################################################################################################
 
 epsilon_precision = 1e-6 # for precision
@@ -51,26 +63,43 @@ epsilon_precision = 1e-6 # for precision
 ########################################################################################################################
 
 # configuration
-img2read = img_name3
-trimap2read = img_name3_trimap
-rescale = 1
+img2read = img_name7
+trimap2read = img_name7_trimap
+
+########################################################################################################################
+
+# configuration rescaling
+rescale_compute = 1
+rescale_imshow = 1
 
 ########################################################################################################################
 
 
-def imread(imgname, img_folder=img_folder, rescale=rescale, grayscale=False):
+def imread(imgname, img_folder=img_folder, rescale=rescale_compute, grayscale=False):
     img_name = "{}/{}".format(img_folder, imgname)
     img = cv2.imread(img_name) if not grayscale else cv2.imread(img_name, 0)
     return cv2.resize(img, (0, 0), fx=rescale, fy=rescale)
 
 
-def imshow(imgname, img):
-    cv2.imshow(imgname, img.astype(np.uint8))
+def imshow(imgname, img, tag="", undo_rescale_compute=True, imwrite=True):
+    rescale = rescale_imshow
+    if undo_rescale_compute:
+        rescale /= rescale_compute
+    resized_img = cv2.resize(img.astype(np.uint8), (0, 0),
+                                 fx=rescale,
+                                 fy=rescale)
+    if do_save_segmented and imwrite:
+        if not tag == "":
+            imgname_f = "{}-{}.png".format(imgname.split('.')[0], tag)
+        else:
+            imgname_f = "{}.png".format(imgname.split('.')[0])
+        cv2.imwrite("{}/{}".format(img_result_folder, imgname_f), resized_img)
+    cv2.imshow(tag, resized_img)
 
 
 def img2rgbArray(img):
-    w, h = img.shape[:2]
-    ar = img.ravel().reshape((w * h, 3))
+    w, h, c = img.shape
+    ar = img.ravel().reshape((w * h, c))
     return ar
 
 
@@ -93,14 +122,6 @@ def check_nan(val):
 ########################################################################################################################
 
 
-def gaussian_2d(win_size=2, sigma=8):
-    x, y = np.ogrid[-win_size:win_size+1, -win_size:win_size+1]
-    g = np.exp(-((x * x + y * y) / (2.0 * sigma ** 2)))
-    g /= g.sum()
-    g /= g.max()
-    g[g < epsilon_precision] = 0
-    return g
-
 @jit(nopython=True, cache=True)
 def get_window(values, i, j, win_radius):
     h, w, c = values.shape
@@ -121,6 +142,7 @@ def get_window(values, i, j, win_radius):
     win[i_min_w: i_max_w, j_min_w: j_max_w] = values[i_min: i_max, j_min: j_max]
 
     return win
+
 
 @jit(nopython=True, cache=True)
 def iterate_maximize(C, sigma_C,
@@ -201,19 +223,38 @@ def iterate_maximize(C, sigma_C,
 
     return F_max, B_max, a_max
 
-def bayesian_matting(img, trimap, win_radius=12, std_dev_c=0.1):
+
+def gaussian_2d(window_radius, sigma):
+    x, y = np.ogrid[-window_radius: window_radius + 1, -window_radius: window_radius + 1]
+    g = np.exp(-((x * x + y * y) / (2.0 * sigma ** 2)))
+    g /= g.sum()
+    g /= g.max()
+    g[g < epsilon_precision] = 0
+    return g
+
+
+class GaussianWeightsDict:
+    def __init__(self, sigma=8):
+        self.weights = {}
+        self.sigma = sigma
+
+    def get(self, window_radius):
+        if window_radius not in self.weights:
+            self.weights[window_radius] = gaussian_2d(window_radius, self.sigma)
+        return self.weights[window_radius]
+
+
+def bayesian_matting(img, trimap, win_radius_max=25, std_dev_c=0.1, max_attempts=1000):
+    print("Running bayesian matting...")
+
     img = img.astype(np.float)
     img /= 255
 
-    min_num_samples = win_radius
     h, w, c = img.shape[:3]
 
     # compute gaussian weights; this will be used later
-    gaussian_weights = gaussian_2d(win_radius, sigma=8)
+    gaussians = GaussianWeightsDict()
     erode_kernel = np.ones((3, 3))
-
-    # print(img.shape)
-    # print(trimap.shape)
 
     # set up the masks
     foreground_mask = trimap == 255
@@ -223,53 +264,73 @@ def bayesian_matting(img, trimap, win_radius=12, std_dev_c=0.1):
     foreground_pixels = img * foreground_mask[:, :, np.newaxis]
     background_pixels = img * background_mask[:, :, np.newaxis]
 
-    # cv2.imshow("foreground_pixels", foreground_pixels)
-    # cv2.imshow("background_pixels", background_pixels)
-    # cv2.waitKey()
-
     # alpha mask, 0 at background, 1 at foreground
     alpha_mask = np.zeros((h, w), np.float)
     alpha_mask[foreground_mask] = 1.0
     alpha_mask[unknown_mask] = np.nan
 
-    # def remove_nans_window(pixels, weights):
-    #     inds = np.nan_to_num(weights) > 0
-    #     return inds.sum(), pixels[inds], weights[inds]
-
     num_unknown_pixels = np.sum(unknown_mask)
     pixel = 0
-    while pixel < num_unknown_pixels:
+    attempt = 0
+    while pixel < num_unknown_pixels and attempt < max_attempts:
         # TODO: erode unknown_mask to work iteratively on edges and not all pixels
-        unknown_pixels = unknown_mask
-        # unknown_mask_eroded = cv2.erode(unknown_mask.astype(np.uint8), erode_kernel, iterations=1)
-        # unknown_pixels = np.logical_and(np.logical_not(unknown_mask_eroded), unknown_mask)
+        # unknown_pixels = unknown_mask
+        unknown_mask_eroded = cv2.erode(unknown_mask.astype(np.uint8), erode_kernel, iterations=1)
+        unknown_pixels = np.logical_and(np.logical_not(unknown_mask_eroded), unknown_mask)
 
         Y, X = np.nonzero(unknown_pixels)
+        pixels_per_attempt = 0
+        print("current attempt has", len(Y), "pixels.")
 
         for i, j in zip(Y, X):
             C = img[i, j]
 
-            # window of alpha values around pixel (i, j)
-            alpha_window = get_window(alpha_mask[..., np.newaxis], i, j, win_radius)[..., 0]
+            # collect samples around pixel (i, j)
+            # start with smallest window size then increase it until enough samples are collected
+            count_fg_samples = 0
+            count_bg_samples = 0
+            alpha_window = None
+            fg_window = None; bg_window = None
+            fg_weights = None; bg_weights = None
 
-            # window of foreground values and weights around pixel (i, j)
-            fg_window = img2rgbArray(get_window(foreground_pixels, i, j, win_radius))
-            fg_weights = (alpha_window * alpha_window * gaussian_weights).flatten()
-            inds = np.nan_to_num(fg_weights) > 0
-            count_fg_samples = inds.sum()
-            fg_window = fg_window[inds]
-            fg_weights = fg_weights[inds]
+            sample_failed = False
+            win_radius = 3
+            min_num_samples = win_radius # at least this many samples: this is 25% of the window
+            while count_fg_samples <= min_num_samples or count_bg_samples <= min_num_samples:
+                # compute gaussian weights
+                gaussian_weights = gaussians.get(win_radius)
 
-            # window of background values and weights around pixel (i, j)
-            bg_window = img2rgbArray(get_window(background_pixels, i, j, win_radius))
-            bg_weights = ((1 - alpha_window) * (1 - alpha_window) * gaussian_weights).flatten()
-            inds = np.nan_to_num(bg_weights) > 0
-            count_bg_samples = inds.sum()
-            bg_window = bg_window[inds]
-            bg_weights = bg_weights[inds]
+                # window of alpha values around pixel (i, j)
+                alpha_window = get_window(alpha_mask[..., np.newaxis], i, j, win_radius)[..., 0]
 
-            # skip this iteration, if not enough samples
-            if count_fg_samples < min_num_samples or count_bg_samples < min_num_samples:
+                # window of foreground values and weights around pixel (i, j)
+                fg_window = img2rgbArray(get_window(foreground_pixels, i, j, win_radius))
+                fg_weights = (alpha_window * alpha_window * gaussian_weights).flatten()
+                inds = np.nan_to_num(fg_weights) > 0
+                count_fg_samples = inds.sum()
+                fg_window = fg_window[inds]
+                fg_weights = fg_weights[inds]
+
+                # window of background values and weights around pixel (i, j)
+                bg_window = img2rgbArray(get_window(background_pixels, i, j, win_radius))
+                bg_weights = ((1 - alpha_window) * (1 - alpha_window) * gaussian_weights).flatten()
+                inds = np.nan_to_num(bg_weights) > 0
+                count_bg_samples = inds.sum()
+                bg_window = bg_window[inds]
+                bg_weights = bg_weights[inds]
+
+                # increment for next iteration
+                win_radius += 1
+                min_num_samples = win_radius
+
+                # print(count_fg_samples, count_bg_samples, min_num_samples, alpha_window.shape)
+
+                # skip this pixel if not enough samples were collected even for max window size
+                if win_radius > win_radius_max:
+                    sample_failed = True
+                    break
+
+            if sample_failed:
                 continue
 
             # run bouman-orchard clustering
@@ -282,33 +343,90 @@ def bayesian_matting(img, trimap, win_radius=12, std_dev_c=0.1):
 
             # skip this iteration, if not enough clusters
             if fg_means.shape[0] < 1 or bg_means.shape[0] < 1:
+                print("Not enough clusters")
                 continue
 
             alpha_init = np.nanmean(alpha_window)
-            # print("Before {}".format(str(datetime.datetime.now().time())))
             F, B, alpha = iterate_maximize(C, std_dev_c, fg_means, fg_covars, bg_means, bg_covars, alpha_init, 100, 1e-1)
-            # print("After {}".format(str(datetime.datetime.now().time())))
 
             foreground_pixels[i, j] = F.ravel()
             background_pixels[i, j] = B.ravel()
             alpha_mask[i, j] = alpha
             unknown_mask[i, j] = 0
 
-            if pixel % 10 == 0:
-                print("\rProgress {}/{}".format(pixel, num_unknown_pixels), end='')
+            if pixels_per_attempt % 10 == 0:
+                print("\rProgress {}/{}".format(pixel + pixels_per_attempt, num_unknown_pixels), end='')
 
-            pixel += 1
+            pixels_per_attempt += 1
 
-    return alpha_mask
+        print("\nppx per attempt", pixels_per_attempt)
+        pixel += pixels_per_attempt
+        attempt += 1
+
+    print("Bayesian matting complete.")
+
+    alpha_mask = np.nan_to_num(alpha_mask)
+    foreground_pixels = np.nan_to_num(foreground_pixels)
+    background_pixels = np.nan_to_num(background_pixels)
+
+    return alpha_mask, foreground_pixels, background_pixels
 
 
-def main():
+def time_it(function, *args):
+
+    return function(args),
+
+
+def do_matting_single_channel():
+    img = imread(imgname=img2read)
+
+    reds = np.repeat(np.atleast_3d(img[..., 0]), 3, axis=2)
+    blues = np.repeat(np.atleast_3d(img[..., 1]), 3, axis=2)
+    greens = np.repeat(np.atleast_3d(img[..., 2]), 3, axis=2)
+    trimap = imread(imgname=trimap2read, grayscale=True)
+
+    time1 = time.time()
+    alpha_red, fg, bg = bayesian_matting(reds, trimap)
+    alpha_blue, fg, bg = bayesian_matting(blues, trimap)
+    alpha_green, fg, bg = bayesian_matting(greens, trimap)
+    delta_time = time.time() - time1
+    print("Took {} seconds".format(delta_time))
+
+    fg = np.zeros_like(img)
+    fg[..., 0] = alpha_red * img[..., 0]
+    fg[..., 1] = alpha_blue * img[..., 1]
+    fg[..., 2] = alpha_green * img[..., 2]
+
+    bg = np.zeros_like(img)
+    bg[..., 0] = (1 - alpha_red) * img[..., 0]
+    bg[..., 1] = (1 - alpha_blue) * img[..., 1]
+    bg[..., 2] = (1 - alpha_green) * img[..., 2]
+
+    imshow(img2read, img, imwrite=False)
+    imshow(img2read, alpha_red*255, "alpha_red")
+    imshow(img2read, alpha_blue*255, "alpha_blue")
+    imshow(img2read, alpha_green*255, "alpha_green")
+    imshow(img2read, fg, "fg")
+    imshow(img2read, bg, "bg")
+
+
+def do_matting_rgb():
     img = imread(imgname=img2read)
     trimap = imread(imgname=trimap2read, grayscale=True)
-    alpha = bayesian_matting(img, trimap)
 
-    imshow("img", img)
-    imshow("alpha", alpha*255)
+    time1 = time.time()
+    alpha, fg, bg = bayesian_matting(img, trimap)
+    delta_time = time.time() - time1
+    print("Took {} seconds".format(delta_time))
+
+    imshow(img2read, img, imwrite=False)
+    imshow(img2read, alpha*255, tag="alpha")
+    imshow(img2read, (alpha[..., np.newaxis]) * img, tag="fg")
+    imshow(img2read, (1.0-alpha[..., np.newaxis]) * img, tag="bg")
+
+def main():
+    do_matting_rgb()
+
     cv2.waitKey()
 
     # def show_tree(cluster_tree, name):
@@ -321,13 +439,6 @@ def main():
     #     img_mask *= 255
     #     img_mask = img_mask.reshape((h, w))
     #     imshow("mask{}".format(name), img_mask)
-
-
-
-
-
-    # cv2.waitKey()
-
 
 if __name__=="__main__":
     main()
