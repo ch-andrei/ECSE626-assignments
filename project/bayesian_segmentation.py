@@ -69,7 +69,7 @@ trimap2read = img_name7_trimap
 ########################################################################################################################
 
 # configuration rescaling
-rescale_compute = 1
+rescale_compute = 0.25
 rescale_imshow = 1
 
 ########################################################################################################################
@@ -244,7 +244,7 @@ class GaussianWeightsDict:
         return self.weights[window_radius]
 
 
-def bayesian_matting(img, trimap, win_radius_max=25, std_dev_c=0.1, max_attempts=1000):
+def bayesian_matting(img, trimap, win_radius_max=25, std_dev_c=0.01, max_attempts=1000):
     print("Running bayesian matting...")
 
     img = img.astype(np.float)
@@ -295,7 +295,7 @@ def bayesian_matting(img, trimap, win_radius_max=25, std_dev_c=0.1, max_attempts
 
             sample_failed = False
             win_radius = 3
-            min_num_samples = win_radius # at least this many samples: this is 25% of the window
+            min_num_samples = win_radius # at least this many samples
             while count_fg_samples <= min_num_samples or count_bg_samples <= min_num_samples:
                 # compute gaussian weights
                 gaussian_weights = gaussians.get(win_radius)
@@ -334,8 +334,8 @@ def bayesian_matting(img, trimap, win_radius_max=25, std_dev_c=0.1, max_attempts
                 continue
 
             # run bouman-orchard clustering
-            fg_cluster = ClusterTree(fg_window, fg_weights)
-            bg_cluster = ClusterTree(bg_window, bg_weights)
+            fg_cluster = ClusterTree(fg_window, fg_weights, sigma_C=std_dev_c)
+            bg_cluster = ClusterTree(bg_window, bg_weights, sigma_C=std_dev_c)
 
             # get means and covars of the clusters
             fg_means, fg_covars = fg_cluster.get_cluster_stats()

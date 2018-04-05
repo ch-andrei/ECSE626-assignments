@@ -37,10 +37,13 @@ class ClusterNode:
         # covariance matrix
         self.R_cov = self.R - single_vector_dot(self.m) / self.N + precision * np.eye(self.dim)
 
-        u, s, v = np.linalg.svd(self.R_cov)
-        self.R_cov = u.dot(np.diag(s + sigma_C)).dot(np.atleast_2d(v).T)
+        print("before", self.R_cov)
 
-        # print("rcovshape", self.R_cov.shape)
+        u, s, v = np.linalg.svd(self.R_cov)
+        self.R_cov = u.dot(np.diag(s + sigma_C * sigma_C)).dot(np.atleast_2d(v).T)
+        # TODO: FIX U S VT reconstruction
+
+        print("after", self.R_cov)
 
         self.q = np.nan_to_num(self.q)
         self.R_cov = np.nan_to_num(self.R_cov)
