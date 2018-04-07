@@ -37,27 +37,13 @@ def doprint(*args):
 
 img_folder = "images"
 img_result_folder = "results"
-img_name0 = "69020.jpg"
-img_name1 = "227092.jpg"
-img_name2 = "260058.jpg"
 
-img_name3 = "gandalf.png"
-img_name3_trimap = "gandalfTrimap.png"
-
-img_name4 = "jomojo.JPG"
-img_name4_trimap = "jomojo_trimap.png"
-
-img_name5 = "knockout01.png"
-img_name5_trimap = "knockout01_trimap.png"
-
-img_name6 = "jomojo1.png"
-img_name6_trimap = "jomojo1_trimap.png"
-
-img_name7 = "girl.png"
-img_name7_trimap = "girl_trimap.png"
-
-img_name8 = "tower.png"
-img_name8_trimap = "tower_trimap.png"
+img1 = ("gandalf.png", "gandalfTrimap.png")
+img2 = ("jomojo.JPG", "jomojo_trimap.png")
+img3 = ("knockout01.png", "knockout01_trimap.png")
+img4 = ("jomojo1.png", "jomojo1_trimap.png")
+img5 = ("girl.png", "girl_trimap.png")
+img6 = ("tower.png", "tower_trimap.png")
 
 ########################################################################################################################
 
@@ -66,8 +52,7 @@ epsilon_precision = 1e-6 # for precision
 ########################################################################################################################
 
 # configuration
-img2read = img_name3
-trimap2read = img_name3_trimap
+img2read, trimap2read = img3
 
 ########################################################################################################################
 
@@ -260,7 +245,9 @@ def bayesian_matting(img, trimap,
                      min_num_samples=20,
                      std_dev_c=0.01,
                      max_sweeps=100,
-                     max_iterations_per_solve=100
+                     max_iterations_per_solve=100,
+                     solve_convergence_threshold=1e-3,
+                     shuffle_indices=False
                      ):
     print("Running bayesian matting on {}...".format(img2read))
 
@@ -290,12 +277,13 @@ def bayesian_matting(img, trimap,
     pixel = 0
     sweep = 0
     while pixel < num_unknown_pixels and sweep < max_sweeps:
+
         Y, X = np.nonzero(unknown_mask)
 
-        # apply a random shuffle of the indexes
-        p = np.random.permutation(len(Y))
-        Y = Y[p]
-        X = X[p]
+        if shuffle_indices:
+            p = np.random.permutation(len(Y))
+            Y = Y[p]
+            X = X[p]
 
         pixels_per_sweep = 0
         print("[Sweep{}] attempting to solve {} pixels.".format(sweep, len(Y)))
@@ -359,7 +347,7 @@ def bayesian_matting(img, trimap,
                                            bg_means, bg_covars,
                                            np.nanmean(alpha_window),
                                            max_iterations_per_solve,
-                                           epsilon_precision)
+                                           solve_convergence_threshold)
 
             alpha_mask[i, j] = alpha
             foreground_pixels[i, j] = F
